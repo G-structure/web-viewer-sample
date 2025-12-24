@@ -12,6 +12,10 @@
 import { defineConfig } from "vite";
 import { viteExternalsPlugin } from 'vite-plugin-externals';
 import react from "@vitejs/plugin-react";
+import { resolve } from 'path';
+
+// Build mode: 'synth' for Synth Control Plane viewer, 'nvidia' for original
+const buildMode = process.env.BUILD_MODE || 'synth';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -20,5 +24,22 @@ export default defineConfig({
         viteExternalsPlugin({
             GFN: 'GFN'
         }),
-    ]
+    ],
+    build: {
+        rollupOptions: {
+            input: buildMode === 'synth'
+                ? resolve(__dirname, 'synth.html')
+                : resolve(__dirname, 'index.html'),
+        },
+        // Rename synth.html to index.html in output for Cloudflare Pages
+        ...(buildMode === 'synth' && {
+            outDir: 'dist',
+        }),
+    },
+    // For Synth mode, redirect root to synth.html in dev
+    ...(buildMode === 'synth' && {
+        server: {
+            open: '/synth.html',
+        },
+    }),
 });
