@@ -3,17 +3,20 @@
  *
  * Parses the session token from the URL path and provides connection config.
  *
- * URL format: https://wagmi.cyberneticphysics.com/{base64url-encoded-token}
+ * URL format: https://wagmi.cyberneticphysics.com/{base64url-payload}.{signature}
  *
- * Token format (JSON):
+ * Token payload (JSON):
  * {
  *   "v": 1,
  *   "sessionId": "sess_xxx",
  *   "vpnIp": "10.8.0.10",
  *   "streamPort": 49100,
  *   "udpPort": 47998,
- *   "webrtcPort": 0
+ *   "webrtcPort": 0,
+ *   "exp": 1234567890  // Unix timestamp (seconds)
  * }
+ *
+ * The signature is HMAC-SHA256 of the payload, verified server-side.
  */
 
 export interface SessionToken {
@@ -23,6 +26,7 @@ export interface SessionToken {
   streamPort: number;
   udpPort: number;
   webrtcPort?: number;
+  exp?: number;  // Expiration timestamp (Unix seconds)
 }
 
 export interface SynthConfig {
@@ -56,33 +60,55 @@ function base64UrlDecode(str: string): string {
   return atob(base64);
 }
 
+export interface TokenParseResult {
+  token: SessionToken | null;
+  error: string | null;
+  expired: boolean;
+}
+
 /**
  * Parse session token from URL path
+ * Handles both signed (payload.signature) and unsigned (payload) formats
  */
-export function parseSessionToken(): SessionToken | null {
+export function parseSessionToken(): TokenParseResult {
   const path = window.location.pathname;
   // Remove leading slash and get token
-  const token = path.slice(1);
+  const fullToken = path.slice(1);
 
-  if (!token) {
-    console.error('No session token in URL path');
-    return null;
+  if (!fullToken) {
+    return { token: null, error: 'No session token in URL path', expired: false };
   }
 
   try {
-    const decoded = base64UrlDecode(token);
+    // Split payload and signature (format: payload.signature or just payload)
+    const dotIndex = fullToken.lastIndexOf('.');
+    const payload = dotIndex > 0 ? fullToken.slice(0, dotIndex) : fullToken;
+    // Note: signature is verified server-side, client just needs the payload
+
+    const decoded = base64UrlDecode(payload);
     const parsed = JSON.parse(decoded) as SessionToken;
 
     // Validate required fields
     if (!parsed.sessionId || !parsed.vpnIp || !parsed.streamPort) {
-      console.error('Invalid session token: missing required fields');
-      return null;
+      return { token: null, error: 'Invalid session token: missing required fields', expired: false };
     }
 
-    return parsed;
+    // Check expiration
+    if (parsed.exp) {
+      const now = Math.floor(Date.now() / 1000);
+      if (now > parsed.exp) {
+        return {
+          token: parsed,
+          error: 'Session link has expired. Please get a new viewer link from your session.',
+          expired: true
+        };
+      }
+    }
+
+    return { token: parsed, error: null, expired: false };
   } catch (error) {
     console.error('Failed to parse session token:', error);
-    return null;
+    return { token: null, error: 'Invalid session token format', expired: false };
   }
 }
 

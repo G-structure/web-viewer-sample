@@ -28,18 +28,18 @@ export default class SynthViewer extends Component<{}, ViewerState> {
 
   componentDidMount() {
     // Parse session token from URL
-    const session = parseSessionToken();
+    const result = parseSessionToken();
 
-    if (!session) {
+    if (result.error || !result.token) {
       this.setState({
         status: 'error',
-        error: 'Invalid or missing session token in URL. Please use the viewer link from your session details.',
+        error: result.error || 'Invalid or missing session token in URL. Please use the viewer link from your session details.',
       });
       return;
     }
 
-    this.setState({ session, status: 'connecting' });
-    this.connectToStream(session);
+    this.setState({ session: result.token, status: 'connecting' });
+    this.connectToStream(result.token);
   }
 
   private async connectToStream(session: SessionToken) {
