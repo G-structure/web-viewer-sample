@@ -5,7 +5,7 @@
  */
 import { Component } from 'react';
 import { AppStreamer, StreamEvent, StreamProps, DirectConfig, StreamType } from '@nvidia/omniverse-webrtc-streaming-library';
-import { parseSessionToken, defaultConfig, SessionToken, SynthConfig, getIceServers } from './config';
+import { parseSessionToken, defaultConfig, SessionToken, SynthConfig, getIceServers, getSignalingProxy } from './config';
 import './SynthViewer.css';
 
 interface ViewerState {
@@ -43,34 +43,40 @@ export default class SynthViewer extends Component<{}, ViewerState> {
   }
 
   private async connectToStream(session: SessionToken) {
-    // Note: Direct VPN connection requires either:
-    // 1. User is on VPN network (can connect directly to VPN IP)
-    // 2. Signaling proxy + TURN relay (for public internet access)
-    //
-    // For now, we attempt direct connection - this will work if:
-    // - Isaac Sim is exposing ports publicly on Vast (not recommended)
-    // - User has VPN access to the control plane network
-    //
-    // TODO: Implement signaling proxy at API level for public access
+    // Get signaling proxy config - routes through VPS to reach VPN IPs
+    // This allows public internet users to connect via WSS proxy
+    const signalingProxy = getSignalingProxy(this.config, session);
+
+    const iceServers = getIceServers(this.config);
+    console.log('Connecting via signaling proxy:', {
+      server: signalingProxy.server,
+      port: signalingProxy.port,
+      path: signalingProxy.path,
+      mediaServer: session.vpnIp,
+      mediaPort: session.udpPort,
+      iceServers: iceServers.map(s => ({ urls: s.urls, username: s.username })),
+    });
 
     const streamConfig: DirectConfig = {
       videoElementId: 'synth-video',
       audioElementId: 'synth-audio',
       authenticate: false,
       maxReconnects: 5,
-      // Connect to Isaac Sim via VPN IP
-      // This requires network connectivity to the VPN
-      signalingServer: session.vpnIp,
-      signalingPort: session.streamPort,
+      // Signaling goes through VPS proxy (WSS on port 443)
+      signalingServer: signalingProxy.server,
+      signalingPort: signalingProxy.port,
+      // @ts-ignore - signalingPath supported but may not be in types
+      signalingPath: signalingProxy.path,
+      // Media server is still the VPN IP - WebRTC will need TURN relay
       mediaServer: session.vpnIp,
       mediaPort: session.udpPort,
       nativeTouchEvents: true,
       width: 1920,
       height: 1080,
       fps: 60,
-      // ICE servers for WebRTC (STUN/TURN)
+      // ICE servers for WebRTC (STUN/TURN) - critical for NAT traversal
       // @ts-ignore - iceServers may not be in type but is supported
-      iceServers: getIceServers(this.config),
+      iceServers,
       onUpdate: (message: StreamEvent) => this.handleUpdate(message),
       onStart: (message: StreamEvent) => this.handleStart(message),
       onStop: (message: StreamEvent) => this.handleStop(message),

@@ -41,9 +41,10 @@ export interface SynthConfig {
 // Default config - can be overridden via environment
 export const defaultConfig: SynthConfig = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'https://api.cyberneticphysics.com',
-  turnServer: import.meta.env.VITE_TURN_SERVER || 'turn:134.199.177.107:3478',
+  // TURN server on VPS (157.245.252.180) for WebRTC relay to VPN IPs
+  turnServer: import.meta.env.VITE_TURN_SERVER || 'turn:157.245.252.180:3478',
   turnUsername: import.meta.env.VITE_TURN_USERNAME || 'isaac',
-  turnPassword: import.meta.env.VITE_TURN_PASSWORD || '',
+  turnPassword: import.meta.env.VITE_TURN_PASSWORD || 'qjRuvE6x0zEc45dtJ11cynRY',
 };
 
 /**
@@ -113,11 +114,24 @@ export function parseSessionToken(): TokenParseResult {
 }
 
 /**
- * Get signaling proxy URL for a session
- * The API proxies WebSocket/HTTP signaling to the VPN IP
+ * Get signaling proxy config for a session
+ * The VPS (api.cyberneticphysics.com) proxies WebSocket signaling to the VPN IP
+ *
+ * Returns the server, port, and path for the signaling connection.
+ * This allows HTTPS clients to connect via WSS to the public proxy,
+ * which forwards to the internal VPN address.
  */
-export function getSignalingProxyUrl(config: SynthConfig, session: SessionToken): string {
-  return `${config.apiBaseUrl}/v1/stream/${session.sessionId}/signal`;
+export function getSignalingProxy(config: SynthConfig, session: SessionToken): {
+  server: string;
+  port: number;
+  path: string;
+} {
+  const url = new URL(config.apiBaseUrl);
+  return {
+    server: url.hostname,
+    port: url.protocol === 'https:' ? 443 : 80,
+    path: `/v1/stream/${session.vpnIp}`,
+  };
 }
 
 /**
